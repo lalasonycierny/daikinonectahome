@@ -18,6 +18,7 @@
 </head>
 <body>
 <h1>Klimatizácie Daikin</h1>
+<p id="msg">Načítavam dáta…</p>
 <div id="cards" class="cards"></div>
 <p>
   <button data-r="day" class="on">Deň</button>
@@ -28,58 +29,108 @@
 <table id="stats"></table>
 
 <script>
-const DATA_URL = "https://raw.githubusercontent.com/lalasonycierny/daikinonectahome/data/history.csv";
-let rows = [], chart, range = "day";
-
-function showError(msg){
-  document.body.insertAdjacentHTML("beforeend",
-    '<p style="color:#c00;white-space:pre-wrap">Chyba: ' + msg + '</p>');
-}
-window.addEventListener("error", e => showError(e.message));
+var DATA_URL = "https://raw.githubusercontent.com/lalasonycierny/daikinonectahome/data/history.csv";
+var rows = [], chart = null, range = "day";
+var msg = document.getElementById("msg");
 
 function parse(txt){
-  const lines = txt.trim().split(/\r?\n/).slice(1);
-  return lines.map(l => {
-    const c = l.split(",");
-    return {t:new Date(c[0]), id:c[1], name:c[2],
+  return txt.trim().split(/\r?\n/).slice(1).map(function(l){
+    var c = l.split(",");
+    return {t:new Date(c[0]), name:c[2],
       room:c[3]===""?null:+c[3], out:c[4]===""?null:+c[4],
       set:c[5]===""?null:+c[5], mode:c[6], power:c[7]};
   });
 }
 
 function bucketKey(d, r){
-  const x = new Date(d);
+  var x = new Date(d);
   if (r === "week") x.setMinutes(0,0,0);
   if (r === "year") x.setHours(0,0,0,0);
   return +x;
 }
 
-function render(){
-  const now = new Date();
-  const span = {day:1, week:7, year:365}[range] * 86400000;
-  const sel = rows.filter(r => now - r.t <= span && r.room !== null);
-  const names = [...new Set(rows.map(r => r.name))];
-  const datasets = [];
-  const stats = [];
+function avg(a){ return a.reduce(function(s,v){return s+v;},0)/a.length; }
 
-  for (const n of names){
-    const rs = sel.filter(r => r.name === n);
-    if (!rs.length) continue;
-    let pts;
-    if (range === "day") pts = rs.map(r => ({x:+r.t, y:r.room}));
-    else {
-      const m = new Map();
-      rs.forEach(r => { const k = bucketKey(r.t, range);
-        if(!m.has(k)) m.set(k,[]); m.get(k).push(r.room); });
-      pts = [...m].map(([k,v]) => ({x:k, y:v.reduce((a,b)=>a+b)/v.length}));
-    }
-    datasets.push({label:n, data:pts, tension:.25, pointRadius:3});
-    const v = rs.map(r => r.room);
-    stats.push([n, Math.min(...v), Math.max(...v), v.reduce((a,b)=>a+b)/v.length]);
+function group(list, getVal){
+  var m = new Map();
+  list.forEach(function(r){
+    var k = range==="day" ? +r.t : bucketKey(r.t, range);
+    if(!m.has(k)) m.set(k,[]);
+    m.get(k).push(getVal(r));
+  });
+  return Array.from(m).map(function(e){ return {x:e[0], y:avg(e[1])}; });
+}
+
+function render(){
+  var now = new Date();
+  var span = {day:1, week:7, year:365}[range] * 86400000;
+  var sel = rows.filter(function(r){ return now - r.t <= span && r.room !== null; });
+  var names = Array.from(new Set(rows.map(function(r){return r.name;})));
+  var datasets = [], stats = [];
+
+  names.forEach(function(n){
+    var rs = sel.filter(function(r){return r.name===n;});
+    if (!rs.length) return;
+    datasets.push({label:n, data:group(rs, function(r){return r.room;}), tension:.25, pointRadius:3});
+    var v = rs.map(function(r){return r.room;});
+    stats.push([n, Math.min.apply(null,v), Math.max.apply(null,v), avg(v)]);
+  });
+
+  var outs = sel.filter(function(r){return r.out !== null;});
+  if (outs.length){
+    datasets.push({label:"Vonku", borderDash:[5,4], pointRadius:3,
+      data:group(outs, function(r){return r.out;})});
   }
 
-  const outs = sel.filter(r => r.out !== null);
-  if (outs.length){
-    const m = new Map();
-    outs.forEach(r => { const k = range==="day" ? +r.t : bucketKey(r.t, range);
-      if(!m.has(k)) m.set(k,[]); m.get(k).push(r.out);
+  document.getElementById("stats").innerHTML =
+    "<tr><th>Zariadenie</th><th>Min</th><th>Max</th><th>Priemer</th></tr>" +
+    stats.map(function(s){
+      return "<tr><td>"+s[0]+"</td><td>"+s[1].toFixed(1)+"</td><td>"+s[2].toFixed(1)+"</td><td>"+s[3].toFixed(1)+"</td></tr>";
+    }).join("");
+
+  if (typeof Chart === "undefined"){ msg.textContent = "Chart.js sa nenacital (graf nie je dostupny)."; return; }
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("chart"), {
+    type:"line", data:{datasets:datasets},
+    options:{parsing:false, scales:{
+      x:{type:"linear", ticks:{callback:function(v){
+        var d = new Date(v);
+        return range==="year" ? d.toLocaleDateString("sk-SK")
+          : d.toLocaleString("sk-SK",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});
+      }}},
+      y:{title:{display:true,text:"°C"}}}}
+  });
+}
+
+function cards(){
+  var last = new Map();
+  rows.forEach(function(r){ last.set(r.name, r); });
+  document.getElementById("cards").innerHTML = Array.from(last.values()).map(function(r){
+    return '<div class="card"><div>'+r.name+'</div>'+
+      '<div class="big">'+(r.room===null?"–":r.room)+' °C</div>'+
+      '<div>Vonku: '+(r.out===null?"–":r.out)+' °C</div>'+
+      '<div>Nastavené: '+(r.set===null?"–":r.set)+' °C · '+(r.mode||"")+' · '+(r.power||"")+'</div>'+
+      '<small>'+r.t.toLocaleString("sk-SK")+'</small></div>';
+  }).join("");
+}
+
+document.querySelectorAll("button").forEach(function(b){
+  b.onclick = function(){
+    document.querySelectorAll("button").forEach(function(x){x.classList.remove("on");});
+    b.classList.add("on"); range = b.dataset.r;
+    try { render(); } catch(e){ msg.textContent = "Chyba: " + e; }
+  };
+});
+
+fetch(DATA_URL + "?_=" + Date.now())
+  .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+  .then(function(t){
+    rows = parse(t);
+    msg.textContent = "Načítaných záznamov: " + rows.length;
+    cards();
+    render();
+  })
+  .catch(function(e){ msg.textContent = "Chyba: " + e; });
+</script>
+</body>
+</html>
