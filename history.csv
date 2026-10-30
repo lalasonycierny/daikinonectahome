@@ -17,3 +17,5 @@ time,device_id,name,room_temp,outdoor_temp,setpoint,mode,power
 2026-10-30T12:11:32Z,f9d08d5e-f578-4cb1-af61-9087d6af5e11,DaikinSPÁLŇA,22,11,27,heating,off
 2026-10-30T13:16:26Z,8788cf35-dfbf-49ca-a791-7d9be395331b,DaikinOBYVAČKA,21,10,27,heating,off
 2026-10-30T13:16:26Z,f9d08d5e-f578-4cb1-af61-9087d6af5e11,DaikinSPÁLŇA,22,10,27,heating,off
+2026-10-30T14:44:18Z,8788cf35-dfbf-49ca-a791-7d9be395331b,DaikinOBYVAČKA,21,9,27,heating,off
+2026-10-30T14:44:18Z,f9d08d5e-f578-4cb1-af61-9087d6af5e11,DaikinSPÁLŇA,22,9,27,heating,off
