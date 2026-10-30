@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daikin teploty</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:16px}
+  .cards{display:flex;gap:12px;flex-wrap:wrap}
+  .card{border:1px solid #8884;border-radius:8px;padding:12px 16px;min-width:200px}
+  .big{font-size:2rem;font-weight:600}
+  button{padding:6px 14px;margin-right:6px;cursor:pointer}
+  button.on{font-weight:700;outline:2px solid #4a90d9}
+  table{border-collapse:collapse;margin-top:16px;width:100%}
+  td,th{border-bottom:1px solid #8884;padding:6px;text-align:left}
+</style>
+</head>
+<body>
+<h1>Klimatizácie Daikin</h1>
+<div id="cards" class="cards"></div>
+<p>
+  <button data-r="day" class="on">Deň</button>
+  <button data-r="week">Týždeň</button>
+  <button data-r="year">Rok</button>
+</p>
+<canvas id="chart" height="110"></canvas>
+<table id="stats"></table>
+
+<script>
+const URL = "https://raw.githubusercontent.com/lalasonycierny/daikinonectahome/data/history.csv";
+let rows = [], chart, range = "day";
+
+function parse(txt){
+  const lines = txt.trim().split("\n").slice(1);
+  return lines.map(l => {
+    const c = l.split(",");
+    return {t:new Date(c[0]), id:c[1], name:c[2],
+      room:c[3]===""?null:+c[3], out:c[4]===""?null:+c[4],
+      set:c[5]===""?null:+c[5], mode:c[6], power:c[7]};
+  });
+}
+
+function bucketKey(d, r){
+  const x = new Date(d);
+  if (r === "week") x.setMinutes(0,0,0);
+  if (r === "year") x.setHours(0,0,0,0);
+  return +x;
+}
+
+function render(){
+  const now = new Date();
+  const span = {day:1, week:7, year:365}[range] * 86400000;
+  const sel = rows.filter(r => now - r.t <= span && r.room !== null);
+  const names = [...new Set(rows.map(r => r.name))];
+  const datasets = [];
+  const stats = [];
+
+  for (const n of names){
+    const rs = sel.filter(r => r.name === n);
+    if (!rs.length) continue;
+    let pts;
+    if (range === "day") pts = rs.map(r => ({x:r.t, y:r.room}));
+    else {
+      const m = new Map();
+      rs.forEach(r => { const k = bucketKey(r.t, range);
+        if(!m.has(k)) m.set(k,[]); m.get(k).push(r.room); });
+      pts = [...m].map(([k,v]) => ({x:new Date(k), y:v.reduce((a,b)=>a+b)/v.length}));
+    }
+    datasets.push({label:n, data:pts, tension:.25, pointRadius:range==="day"?1:2});
+    const v = rs.map(r => r.room);
+    stats.push([n, Math.min(...v), Math.max(...v), v.reduce((a,b)=>a+b)/v.length]);
+  }
+
+  const outs = sel.filter(r => r.out !== null);
+  if (outs.length){
+    const m = new Map();
+    outs.forEach(r => { const k = range==="day" ? +r.t : bucketKey(r.t, range);
+      if(!m.has(k)) m.set(k,[]); m.get(k).push(r.out); });
+    datasets.push({label:"Vonku", borderDash:[5,4], pointRadius:0,
+      data:[...m].map(([k,v]) => ({x:new Date(k), y:v.reduce((a,b)=>a+b)/v.length}))});
+  }
+
+  const cfg = {type:"line", data:{datasets},
+    options:{parsing:false, scales:{
+      x:{type:"linear", ticks:{callback:v=>{const d=new Date(v);
+        return range==="year"?d.toLocaleDateString("sk-SK"):d.toLocaleString("sk-SK",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});}}},
+      y:{title:{display:true,text:"°C"}}}}};
+  cfg.data.datasets.forEach(ds => ds.data = ds.data.map(p => ({x:+p.x, y:p.y})));
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("chart"), cfg);
+
+  document.getElementById("stats").innerHTML =
+    "<tr><th>Zariadenie</th><th>Min</th><th>Max</th><th>Priemer</th></tr>" +
+    stats.map(s => `<tr><td>${s[0]}</td><td>${s[1].toFixed(1)}</td><td>${s[2].toFixed(1)}</td><td>${s[3].toFixed(1)}</td></tr>`).join("");
+}
+
+function cards(){
+  const last = new Map();
+  rows.forEach(r => last.set(r.name, r));
+  document.getElementById("cards").innerHTML = [...last.values()].map(r =>
+    `<div class="card"><div>${r.name}</div>
+     <div class="big">${r.room ?? "–"} °C</div>
+     <div>Nastavené: ${r.set ?? "–"} °C · ${r.mode || ""} · ${r.power || ""}</div>
+     <small>${r.t.toLocaleString("sk-SK")}</small></div>`).join("");
+}
+
+document.querySelectorAll("button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); range = b.dataset.r; render();
+});
+
+fetch(URL + "?_=" + Date.now()).then(r => r.text()).then(t => {
+  rows = parse(t); cards(); render();
+}).catch(e => document.body.insertAdjacentHTML("beforeend", "<p>Chyba načítania dát: "+e+"</p>"));
+</script>
+</body>
+</html>
