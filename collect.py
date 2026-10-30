@@ -4,19 +4,24 @@ IDP = "https://idp.onecta.daikineurope.com/v1/oidc/token"
 API = "https://api.onecta.daikineurope.com/v1/gateway-devices"
 OUT = "datadir/history.csv"
 
+
 def get_access_token():
     r = requests.post(IDP, data={
         "grant_type": "refresh_token",
-        "refresh_token": os.environ["DAIKIN_REFRESH_TOKEN"],
-        "client_id": os.environ["DAIKIN_CLIENT_ID"],
-        "client_secret": os.environ["DAIKIN_CLIENT_SECRET"],
+        "refresh_token": os.environ["DAIKIN_REFRESH_TOKEN"].strip(),
+        "client_id": os.environ["DAIKIN_CLIENT_ID"].strip(),
+        "client_secret": os.environ["DAIKIN_CLIENT_SECRET"].strip(),
     }, timeout=30)
-    r.raise_for_status()
+    if not r.ok:
+        print("Token endpoint error:", r.status_code, r.text)
+        r.raise_for_status()
     j = r.json()
     new = j.get("refresh_token")
-    if new and new != os.environ["DAIKIN_REFRESH_TOKEN"]:
+    if new and new != os.environ["DAIKIN_REFRESH_TOKEN"].strip():
         open("new_refresh_token.txt", "w").write(new)
+        print("Daikin vydal novy refresh token (ulozi sa do GitHub Secrets).")
     return j["access_token"]
+
 
 def val(d, *path):
     for p in path:
@@ -25,13 +30,16 @@ def val(d, *path):
         d = d.get(p)
     return d
 
+
 def main():
     token = get_access_token()
     r = requests.get(API, headers={"Authorization": f"Bearer {token}"}, timeout=30)
     if r.status_code == 429:
         print("Rate limited, retry-after:", r.headers.get("Retry-After"))
         return
-    r.raise_for_status()
+    if not r.ok:
+        print("API error:", r.status_code, r.text[:500])
+        r.raise_for_status()
     devices = r.json()
     if os.environ.get("DEBUG"):
         print(json.dumps(devices, indent=1)[:6000])
@@ -46,21 +54,4 @@ def main():
             mode = val(mp, "operationMode", "value")
             rows.append([
                 now, d["id"], name,
-                val(mp, "sensoryData", "value", "roomTemperature", "value"),
-                val(mp, "sensoryData", "value", "outdoorTemperature", "value"),
-                val(mp, "temperatureControl", "value", "operationModes", mode,
-                    "setpoints", "roomTemperature", "value") if mode else None,
-                mode,
-                val(mp, "onOffMode", "value"),
-            ])
-
-    new_file = not os.path.exists(OUT)
-    with open(OUT, "a", newline="") as f:
-        w = csv.writer(f)
-        if new_file:
-            w.writerow(["time", "device_id", "name", "room_temp",
-                        "outdoor_temp", "setpoint", "mode", "power"])
-        w.writerows(rows)
-    print(f"Saved {len(rows)} rows")
-
-main()
+                val(mp,
