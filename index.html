@@ -28,11 +28,17 @@
 <table id="stats"></table>
 
 <script>
-const URL = "https://raw.githubusercontent.com/lalasonycierny/daikinonectahome/data/history.csv";
+const DATA_URL = "https://raw.githubusercontent.com/lalasonycierny/daikinonectahome/data/history.csv";
 let rows = [], chart, range = "day";
 
+function showError(msg){
+  document.body.insertAdjacentHTML("beforeend",
+    '<p style="color:#c00;white-space:pre-wrap">Chyba: ' + msg + '</p>');
+}
+window.addEventListener("error", e => showError(e.message));
+
 function parse(txt){
-  const lines = txt.trim().split("\n").slice(1);
+  const lines = txt.trim().split(/\r?\n/).slice(1);
   return lines.map(l => {
     const c = l.split(",");
     return {t:new Date(c[0]), id:c[1], name:c[2],
@@ -60,14 +66,14 @@ function render(){
     const rs = sel.filter(r => r.name === n);
     if (!rs.length) continue;
     let pts;
-    if (range === "day") pts = rs.map(r => ({x:r.t, y:r.room}));
+    if (range === "day") pts = rs.map(r => ({x:+r.t, y:r.room}));
     else {
       const m = new Map();
       rs.forEach(r => { const k = bucketKey(r.t, range);
         if(!m.has(k)) m.set(k,[]); m.get(k).push(r.room); });
-      pts = [...m].map(([k,v]) => ({x:new Date(k), y:v.reduce((a,b)=>a+b)/v.length}));
+      pts = [...m].map(([k,v]) => ({x:k, y:v.reduce((a,b)=>a+b)/v.length}));
     }
-    datasets.push({label:n, data:pts, tension:.25, pointRadius:range==="day"?2:3});
+    datasets.push({label:n, data:pts, tension:.25, pointRadius:3});
     const v = rs.map(r => r.room);
     stats.push([n, Math.min(...v), Math.max(...v), v.reduce((a,b)=>a+b)/v.length]);
   }
@@ -76,14 +82,4 @@ function render(){
   if (outs.length){
     const m = new Map();
     outs.forEach(r => { const k = range==="day" ? +r.t : bucketKey(r.t, range);
-      if(!m.has(k)) m.set(k,[]); m.get(k).push(r.out); });
-    datasets.push({label:"Vonku", borderDash:[5,4], pointRadius:2,
-      data:[...m].map(([k,v]) => ({x:new Date(k), y:v.reduce((a,b)=>a+b)/v.length}))});
-  }
-
-  const cfg = {type:"line", data:{datasets},
-    options:{parsing:false, scales:{
-      x:{type:"linear", ticks:{callback:v=>{const d=new Date(v);
-        return range==="year"?d.toLocaleDateString("sk-SK"):d.toLocaleString("sk-SK",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});}}},
-      y:{title:{display:true,text:"°C"}}}}};
-  cfg.data.datasets.forEach(ds => ds.data = ds.data.map(p =>
+      if(!m.has(k)) m.set(k,[]); m.get(k).push(r.out);
