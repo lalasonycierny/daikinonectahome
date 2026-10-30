@@ -52,6 +52,29 @@ def main():
                 continue
             name = val(mp, "name", "value") or d["id"][:8]
             mode = val(mp, "operationMode", "value")
+            setpoint = None
+            if mode:
+                setpoint = val(mp, "temperatureControl", "value",
+                               "operationModes", mode,
+                               "setpoints", "roomTemperature", "value")
             rows.append([
                 now, d["id"], name,
-                val(mp,
+                val(mp, "sensoryData", "value", "roomTemperature", "value"),
+                val(mp, "sensoryData", "value", "outdoorTemperature", "value"),
+                setpoint,
+                mode,
+                val(mp, "onOffMode", "value"),
+            ])
+
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    new_file = not os.path.exists(OUT)
+    with open(OUT, "a", newline="") as f:
+        w = csv.writer(f)
+        if new_file:
+            w.writerow(["time", "device_id", "name", "room_temp",
+                        "outdoor_temp", "setpoint", "mode", "power"])
+        w.writerows(rows)
+    print(f"Saved {len(rows)} rows")
+
+
+main()
